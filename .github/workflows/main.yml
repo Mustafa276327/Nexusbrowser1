@@ -1,1 +1,57 @@
+name: Build APK from ZIP
 
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Extract Android Gradle project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android-project
+          unzip -q nexus-android-gradle.zip -d android-project
+
+          if [[ -f android-project/gradlew ]]; then
+            echo "PROJECT_DIR=android-project" >> "$GITHUB_ENV"
+          else
+            gradlew_path="$(find android-project -type f -name gradlew -print -quit)"
+            if [[ -z "$gradlew_path" ]]; then
+              echo "gradlew not found inside nexus-android-gradle.zip" >&2
+              find android-project -maxdepth 3 -type f | sort >&2
+              exit 1
+            fi
+            echo "PROJECT_DIR=$(dirname "$gradlew_path")" >> "$GITHUB_ENV"
+          fi
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-browser-debug-apk
+          path: ${{ env.PROJECT_DIR }}/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
